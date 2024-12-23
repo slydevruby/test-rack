@@ -1,40 +1,42 @@
 # frozen_string_literal: true
 
+require_relative 'formatter'
+
 # New Application
 class App
-  OPTIONS = Set['year', 'month', 'day', 'hour', 'minute', 'second']
-  FORMATS = ['%Y', '%m', '%d', '%H', '%M', '%S'].freeze
+  DELIMITER = '%2C'
+  TEXT_STATUS = { not_found: 'Not found', bad_request: 'Unknown time format ' }.freeze
+  STATUS = { ok: 200, not_found: 404, bad_request: 400 }.freeze
 
   def call(env)
-    format, options = env['QUERY_STRING'].split('=')
-    if env['REQUEST_METHOD'] == 'GET' && env['REQUEST_PATH'] == '/time' && format == 'format'
-      parse(options)
-    else
-      [404, headers, []]
+    unless accept? env
+      response :not_found, TEXT_STATUS[:not_found]
+      return
     end
+
+    valid, invalid = parse_query(env)
+    if invalid.empty?
+      response(:ok, Formatter.convert(valid))
+    else
+      response(:bad_request, TEXT_STATUS[:bad_request] + invalid)
+    end
+  end
+
+  def response(status, text)
+    [STATUS[status], { 'content-type' => 'text/plain' }, ["#{text}\n"]]
   end
 
   private
 
-  def headers
-    { 'content-type' => 'text/plain' }
+  def accept?(env)
+    format = env.fetch('QUERY_STRING').split('=')[0]
+    env.fetch('REQUEST_METHOD') == 'GET' &&
+      env.fetch('REQUEST_PATH') == '/time' &&
+      format == 'format'
   end
 
-  def convert(options)
-    options_array = OPTIONS.to_a
-    line = options.to_a.map.each do |el|
-      FORMATS[options_array.index(el)]
-    end.join(' ')
-    "#{line}\n"
-  end
-
-  def parse(options)
-    options = options.split('%2C').to_set
-    invalid_options = (options - OPTIONS).join(' ')
-    if invalid_options.empty?
-      [200, headers, [Time.now.strftime(convert(options))]]
-    else
-      [400, headers, ["Unknown time format [#{invalid_options}]\n"]]
-    end
+  def parse_query(env)
+    options = env.fetch('QUERY_STRING').split('=')[1].split(DELIMITER)
+    [options, (options.to_set - Formatter::OPTIONS).join(' ')]
   end
 end
